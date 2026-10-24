@@ -13,9 +13,7 @@ class SupportChatApp extends StatelessWidget {
       title: 'Чат служби підтримки',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.indigo,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
       home: const SupportChatHomeScreen(),
@@ -37,18 +35,11 @@ class SupportChatHomeScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.support_agent,
-              size: 80,
-              color: Colors.indigo,
-            ),
+            Icon(Icons.support_agent, size: 80, color: Colors.indigo),
             SizedBox(height: 16),
             Text(
               'Служба підтримки',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 8),
             Text(
