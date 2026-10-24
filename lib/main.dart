@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'screens/chat_screen.dart';
+
 void main() {
   runApp(const SupportChatApp());
 }
@@ -16,39 +18,7 @@ class SupportChatApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const SupportChatHomeScreen(),
-    );
-  }
-}
-
-class SupportChatHomeScreen extends StatelessWidget {
-  const SupportChatHomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Чат служби підтримки'),
-        centerTitle: true,
-      ),
-      body: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.support_agent, size: 80, color: Colors.indigo),
-            SizedBox(height: 16),
-            Text(
-              'Служба підтримки',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Завантаження повідомлень буде додано далі',
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
+      home: const ChatScreen(),
     );
   }
 }
