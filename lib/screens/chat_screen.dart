@@ -24,6 +24,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Stream<List<ChatMessage>>? _messageStream;
 
   List<ChatMessage> _initialMessages = [];
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -32,9 +33,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<ChatInitialData> _loadChat() async {
+    final generation = ++_loadGeneration;
+
     final data = await _api.loadInitialData();
 
-    if (!mounted) return data;
+    if (!mounted || generation != _loadGeneration) {
+      return data;
+    }
 
     _chatController?.dispose();
 
@@ -370,6 +375,13 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           _buildUnreadCounter(),
           IconButton(
+            onPressed: () {
+              _chatController?.markAllAsRead();
+            },
+            icon: const Icon(Icons.done_all),
+            tooltip: 'Позначити прочитаними',
+          ),
+          IconButton(
             onPressed: _reloadData,
             icon: const Icon(Icons.refresh),
             tooltip: 'Оновити чат',
@@ -399,6 +411,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _loadGeneration++;
     _chatController?.dispose();
     _textController.dispose();
     super.dispose();

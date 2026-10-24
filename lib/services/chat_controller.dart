@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import '../models/chat_message.dart';
 import 'fake_chat_api.dart';
 
-
 class ChatController {
   ChatController({
     required this._api,
@@ -22,8 +21,11 @@ class ChatController {
   final ValueNotifier<bool> isTyping = ValueNotifier<bool>(false);
 
   List<ChatMessage> _messages;
-  Timer? _replyTimer;
+
   bool _disposed = false;
+  bool _processingReplies = false;
+
+  int _pendingReplies = 0;
   int _nextMessageId = 0;
 
   Stream<List<ChatMessage>> get messagesStream => _messageController.stream;
@@ -44,6 +46,7 @@ class ChatController {
       if (message.sender == MessageSender.operator && !message.isRead) {
         return message.copyWith(isRead: true);
       }
+
       return message;
     }).toList();
 
@@ -77,6 +80,10 @@ class ChatController {
 
       _updateStatus(id, MessageStatus.delivered);
       _scheduleOperatorReply();
+    } on TimeoutException {
+      if (_disposed) return;
+
+      _updateStatus(id, MessageStatus.failed);
     } catch (_) {
       if (_disposed) return;
 
@@ -104,6 +111,10 @@ class ChatController {
 
       _updateStatus(id, MessageStatus.delivered);
       _scheduleOperatorReply();
+    } on TimeoutException {
+      if (_disposed) return;
+
+      _updateStatus(id, MessageStatus.failed);
     } catch (_) {
       if (_disposed) return;
 
@@ -118,6 +129,7 @@ class ChatController {
       if (message.id == id) {
         return message.copyWith(status: status);
       }
+
       return message;
     }).toList();
 
@@ -127,32 +139,46 @@ class ChatController {
   void _scheduleOperatorReply() {
     if (_disposed) return;
 
-    if (_replyTimer?.isActive ?? false) return;
+    _pendingReplies++;
+    _processReplies();
+  }
 
+  Future<void> _processReplies() async {
+    if (_disposed || _processingReplies) return;
+
+    _processingReplies = true;
     isTyping.value = true;
 
-    _replyTimer = Timer(const Duration(milliseconds: 300), () async {
-      try {
-        final reply = await _api.generateOperatorReply();
+    try {
+      while (_pendingReplies > 0 && !_disposed) {
+        _pendingReplies--;
 
-        if (_disposed) return;
+        try {
+          final reply = await _api.generateOperatorReply();
 
-        _messages = [..._messages, reply];
-        _publish();
-      } catch (_) {
-      } finally {
-        if (!_disposed) {
-          isTyping.value = false;
+          if (_disposed) return;
+
+          _messages = [..._messages, reply];
+          _publish();
+        } catch (_) {
+          // Помилка відповіді оператора не зупиняє чат.
         }
       }
-    });
+    } finally {
+      _processingReplies = false;
+
+      if (!_disposed) {
+        isTyping.value = false;
+      }
+    }
   }
 
   void dispose() {
     if (_disposed) return;
 
     _disposed = true;
-    _replyTimer?.cancel();
+    _pendingReplies = 0;
+
     isTyping.dispose();
     _messageController.close();
   }
