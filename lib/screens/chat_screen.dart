@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/chat_initial_data.dart';
 import '../models/chat_message.dart';
+import '../services/chat_controller.dart';
 import '../services/fake_chat_api.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -13,27 +16,86 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final FakeChatApi _api = FakeChatApi(failureRate: 0.2);
+  final TextEditingController _textController = TextEditingController();
 
   late Future<ChatInitialData> _initialDataFuture;
+
+  ChatController? _chatController;
+  Stream<List<ChatMessage>>? _messageStream;
+
+  List<ChatMessage> _initialMessages = [];
 
   @override
   void initState() {
     super.initState();
+    _initialDataFuture = _loadChat();
+  }
 
-    _initialDataFuture = _api.loadInitialData();
+  Future<ChatInitialData> _loadChat() async {
+    final data = await _api.loadInitialData();
+
+    if (!mounted) return data;
+
+    _chatController?.dispose();
+
+    final controller = ChatController(
+      api: _api,
+      initialMessages: data.messages,
+    );
+
+    _chatController = controller;
+    _messageStream = controller.messagesStream;
+    _initialMessages = controller.currentMessages;
+
+    return data;
   }
 
   void _reloadData() {
+    _chatController?.dispose();
+    _chatController = null;
+    _messageStream = null;
+    _initialMessages = [];
+
     setState(() {
-      _initialDataFuture = _api.loadInitialData();
+      _initialDataFuture = _loadChat();
     });
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+
+    final controller = _chatController;
+    if (controller == null) return;
+
+    _textController.clear();
+
+    await controller.sendMessage(text);
+
+    if (!mounted) return;
+  }
+
+  Future<void> _retryMessage(String id) async {
+    await _chatController?.retryMessage(id);
+
+    if (!mounted) return;
   }
 
   String _formatTime(DateTime date) {
     final hours = date.hour.toString().padLeft(2, '0');
     final minutes = date.minute.toString().padLeft(2, '0');
-
     return '$hours:$minutes';
+  }
+
+  String _statusText(MessageStatus status) {
+    switch (status) {
+      case MessageStatus.sending:
+        return 'Надсилається...';
+      case MessageStatus.delivered:
+        return 'Доставлено';
+      case MessageStatus.failed:
+        return 'Не доставлено';
+    }
   }
 
   Widget _buildLoading() {
@@ -42,8 +104,8 @@ class _ChatScreenState extends State<ChatScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           CircularProgressIndicator(),
-          SizedBox(height: 20),
-          Text('Завантаження повідомлень...', style: TextStyle(fontSize: 16)),
+          SizedBox(height: 16),
+          Text('Завантаження повідомлень...'),
         ],
       ),
     );
@@ -64,11 +126,7 @@ class _ChatScreenState extends State<ChatScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
-            Text(
-              error.toString(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
-            ),
+            Text(error.toString(), textAlign: TextAlign.center),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: _reloadData,
@@ -86,17 +144,14 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 72, color: Colors.grey),
+          Icon(Icons.chat_bubble_outline, size: 70, color: Colors.grey),
           SizedBox(height: 16),
           Text(
             'Історія повідомлень порожня',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 8),
-          Text(
-            'Почніть розмову зі службою підтримки',
-            textAlign: TextAlign.center,
-          ),
+          Text('Почніть розмову зі службою підтримки'),
         ],
       ),
     );
@@ -123,17 +178,76 @@ class _ChatScreenState extends State<ChatScreen> {
               style: const TextStyle(fontSize: 15, color: Colors.black87),
             ),
             const SizedBox(height: 6),
-            Text(
-              _formatTime(message.createdAt),
-              style: const TextStyle(fontSize: 11, color: Colors.black54),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _formatTime(message.createdAt),
+                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                ),
+                if (isUser) ...[
+                  const SizedBox(width: 10),
+                  Text(
+                    _statusText(message.status),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: message.status == MessageStatus.failed
+                          ? Colors.red
+                          : Colors.black54,
+                    ),
+                  ),
+                ],
+              ],
             ),
+            if (isUser && message.status == MessageStatus.failed)
+              TextButton.icon(
+                onPressed: () => _retryMessage(message.id),
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Повторити'),
+              ),
           ],
         ),
       ),
     );
   }
 
+  Widget _buildUnreadCounter() {
+    final stream = _messageStream;
+
+    if (stream == null) return const SizedBox.shrink();
+
+    return StreamBuilder<List<ChatMessage>>(
+      stream: stream,
+      initialData: _initialMessages,
+      builder: (context, snapshot) {
+        final messages = snapshot.data ?? [];
+
+        final unread = messages.where((message) {
+          return message.sender == MessageSender.operator && !message.isRead;
+        }).length;
+
+        return Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: Center(
+            child: Badge(
+              isLabelVisible: unread > 0,
+              label: Text('$unread'),
+              child: const Icon(Icons.mark_chat_unread_outlined),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildChat(ChatInitialData data) {
+    final controller = _chatController;
+    final stream = _messageStream;
+
+    if (controller == null || stream == null) {
+      return _buildLoading();
+    }
+
     return Column(
       children: [
         Container(
@@ -171,36 +285,76 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
         Expanded(
-          child: data.messages.isEmpty
-              ? _buildEmpty()
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  itemCount: data.messages.length,
-                  itemBuilder: (context, index) {
-                    return _buildMessage(data.messages[index]);
-                  },
-                ),
-        ),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border(top: BorderSide(color: Colors.grey.shade300)),
+          child: StreamBuilder<List<ChatMessage>>(
+            stream: stream,
+            initialData: _initialMessages,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Помилка потоку: ${snapshot.error}'));
+              }
+
+              final messages = snapshot.data ?? [];
+
+              if (messages.isEmpty) {
+                return _buildEmpty();
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                itemCount: messages.length,
+                itemBuilder: (context, index) {
+                  return _buildMessage(messages[index]);
+                },
+              );
+            },
           ),
-          child: const Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  enabled: false,
-                  decoration: InputDecoration(
-                    hintText: 'Введіть повідомлення...',
-                    border: OutlineInputBorder(),
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: controller.isTyping,
+          builder: (context, isTyping, child) {
+            if (!isTyping) return const SizedBox.shrink();
+
+            return const Padding(
+              padding: EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  SizedBox(width: 12),
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 10),
+                  Text('Оператор друкує...'),
+                ],
+              ),
+            );
+          },
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: const InputDecoration(
+                      hintText: 'Введіть повідомлення...',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
-              ),
-              SizedBox(width: 8),
-              IconButton(onPressed: null, icon: Icon(Icons.send)),
-            ],
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _sendMessage,
+                  icon: const Icon(Icons.send),
+                  tooltip: 'Надіслати',
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -214,6 +368,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const Text('Чат служби підтримки'),
         centerTitle: true,
         actions: [
+          _buildUnreadCounter(),
           IconButton(
             onPressed: _reloadData,
             icon: const Icon(Icons.refresh),
@@ -240,5 +395,12 @@ class _ChatScreenState extends State<ChatScreen> {
         },
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _chatController?.dispose();
+    _textController.dispose();
+    super.dispose();
   }
 }
